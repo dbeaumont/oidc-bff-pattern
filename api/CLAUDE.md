@@ -1,33 +1,103 @@
 # Conventions Spring Boot — API (Resource Server)
 
-Spring Boot 3.4.1 / Java 21, OAuth2 Resource Server, Flyway, PostgreSQL. Voir le `CLAUDE.md` racine pour la stack complète et les règles de sécurité transversales.
+Spring Boot 3.4.1 / Java 21, OAuth2 Resource Server, Flyway, PostgreSQL.
+Voir le `CLAUDE.md` racine pour la stack complète et les règles de sécurité transversales.
+
+---
+
+## Architecture en couches
+
+```
+Controller  →  Service  →  Repository  →  PostgreSQL
+```
+
+| Couche | Responsabilité |
+|---|---|
+| `controller/` | Routage HTTP, validation de la requête, construction de la réponse (`ResponseEntity`) |
+| `service/` | Logique applicative, règles métier, logs, levée des erreurs fonctionnelles |
+| `repository/` | Accès aux données via Spring Data JPA |
+| `entity/` | Modèle de persistance JPA |
+| `dto/` | Objets d'entrée/sortie exposés par l'API (records Java) |
+
+**Règles de séparation strictes :**
+- Le controller ne connaît que le service — jamais le repository directement.
+- Le service lève les erreurs (`ResponseStatusException`) ; le controller ne fait pas de `try/catch`.
+- Aucune logique métier dans le controller ni dans l'entité JPA.
+- Ne jamais exposer une entité JPA en request ou response body : toujours passer par un DTO.
+
+---
 
 ## Règles générales
 
-- Injection par constructeur uniquement (pas de `@Autowired` sur champs).
-- Stateless : `SessionCreationPolicy.STATELESS`, CSRF désactivé.
-- Autorisation au niveau méthode avec `@PreAuthorize`.
-- Les rôles sont préfixés `ROLE_` par Spring Security — utiliser `hasRole('USER')` (sans préfixe) ou `hasAuthority('ROLE_USER')`.
-- Schéma géré par Flyway (`ddl-auto: validate`). Ne jamais utiliser `create` ou `update` en dehors du dev local.
-- **Ne jamais exposer une entité JPA directement en request ou response body** : toujours passer par des DTOs.
+- **Injection par constructeur uniquement** — pas de `@Autowired` sur les champs.
+- **Stateless** — `SessionCreationPolicy.STATELESS`, CSRF désactivé.
+- **Autorisation au niveau méthode** — `@PreAuthorize` obligatoire sur chaque endpoint.
+- Les rôles sont préfixés `ROLE_` par Spring Security : utiliser `hasRole('USER')` (sans préfixe) ou `hasAuthority('ROLE_USER')`.
+- **Schéma géré par Flyway** — `ddl-auto: validate`. Ne jamais utiliser `create` ou `update`.
+
+---
+
+## Logs
+
+- SLF4J uniquement — jamais `System.out` ni `System.err`.
+- Format des messages : `[ACTION] entity=NomEntité résultat`.
+- Ne jamais logger de données sensibles (secrets, mots de passe, tokens).
+
+**correlationId**
+- Un filtre lit le header `X-Correlation-Id` entrant (ou génère un UUID) et le place dans le MDC.
+- Toutes les couches héritent automatiquement du `correlationId` via le MDC.
+
+**Ce que chaque service doit logger :**
+- Début d'opération (niveau `INFO`)
+- Succès avec résultat (niveau `INFO`)
+- Not found / avertissement métier (niveau `WARN`)
+- Erreur inattendue (niveau `ERROR`)
+
+```java
+log.info("[CREATE] entity=Item début name={}", request.name());
+log.info("[CREATE] entity=Item résultat id={}", saved.getId());
+log.warn("[FIND_BY_ID] entity=Item NOT_FOUND id={}", id);
+log.error("[DELETE] entity=Item erreur", ex);
+```
+
+**Format console :**
+- Développement : lisible, inclut `%X{correlationId}`.
+- Production : JSON structuré (`logstash-logback-encoder`), compatible supervision.
+
+---
+
+## Gestion des erreurs REST
+
+- Un unique `@RestControllerAdvice` global gère tous les cas — jamais de `try/catch` dans les controllers.
+- Le service lève `ResponseStatusException` pour les erreurs fonctionnelles (404, 409…).
+
+**Format JSON uniforme :**
+```json
+{ "code": "NOT_FOUND", "message": "Item not found" }
+```
+
+**Cas couverts par le `@RestControllerAdvice` :**
+- `MethodArgumentNotValidException` → 400 avec détail des champs dans `errors`
+- `ResponseStatusException` → statut HTTP correspondant
+- `Exception` (non gérée) → 500 sans stacktrace en réponse
 
 ---
 
 ## DTOs
 
-Utiliser des **records Java** (immuables, getters générés) pour les DTOs request et response. Placer dans le package `dto/`.
+Records Java uniquement (immuables, getters générés). Package `dto/`.
 
 ```java
-// MyResourceRequest.java
-public record MyResourceRequest(
+// ItemRequest.java
+public record ItemRequest(
     @NotBlank String name,
     String description
 ) {}
 
-// MyResourceResponse.java
-public record MyResourceResponse(Long id, String name, String description) {
-    public static MyResourceResponse from(MyResource entity) {
-        return new MyResourceResponse(entity.getId(), entity.getName(), entity.getDescription());
+// ItemResponse.java
+public record ItemResponse(Long id, String name, String description) {
+    public static ItemResponse from(Item entity) {
+        return new ItemResponse(entity.getId(), entity.getName(), entity.getDescription());
     }
 }
 ```
@@ -36,79 +106,117 @@ public record MyResourceResponse(Long id, String name, String description) {
 
 ## Controller
 
+Le controller ne contient que des préoccupations HTTP : routing, validation, `ResponseEntity`.
+Toute la logique est déléguée au service.
+
 ```java
 @RestController
-@RequestMapping("/my-resource")
-public class MyResourceController {
+@RequestMapping("/items")
+public class ItemController {
 
-    private final MyResourceRepository repository;
+    private final ItemService itemService;
 
-    public MyResourceController(MyResourceRepository repository) {
-        this.repository = repository;
+    public ItemController(ItemService itemService) {
+        this.itemService = itemService;
     }
 
     @GetMapping
     @PreAuthorize("hasRole('USER')")
-    public List<MyResourceResponse> findAll() {
-        return repository.findAll().stream().map(MyResourceResponse::from).toList();
+    public List<ItemResponse> findAll() {
+        return itemService.findAll();
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('USER')")
-    public ResponseEntity<MyResourceResponse> findById(@PathVariable Long id) {
-        return repository.findById(id)
-            .map(MyResourceResponse::from)
-            .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<ItemResponse> findById(@PathVariable Long id) {
+        return ResponseEntity.ok(itemService.findById(id));
     }
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<MyResourceResponse> create(@Valid @RequestBody MyResourceRequest request) {
-        MyResource saved = repository.save(new MyResource(request.name(), request.description()));
-        return ResponseEntity.created(URI.create("/my-resource/" + saved.getId()))
-            .body(MyResourceResponse.from(saved));
+    public ResponseEntity<ItemResponse> create(@Valid @RequestBody ItemRequest request) {
+        ItemResponse created = itemService.create(request);
+        return ResponseEntity.created(URI.create("/items/" + created.id())).body(created);
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<MyResourceResponse> update(@PathVariable Long id,
-                                                      @Valid @RequestBody MyResourceRequest request) {
-        return repository.findById(id)
-            .map(existing -> {
-                existing.setName(request.name());
-                existing.setDescription(request.description());
-                return ResponseEntity.ok(MyResourceResponse.from(repository.save(existing)));
-            })
-            .orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<ItemResponse> update(@PathVariable Long id,
+                                               @Valid @RequestBody ItemRequest request) {
+        return ResponseEntity.ok(itemService.update(id, request));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
-        if (!repository.existsById(id)) return ResponseEntity.notFound().build();
-        repository.deleteById(id);
+        itemService.delete(id);
         return ResponseEntity.noContent().build();
     }
 }
 ```
 
-**Règles** :
-- Toujours retourner `ResponseEntity` pour les opérations avec statuts HTTP explicites (création, 404).
-- `@Valid` obligatoire sur les `@RequestBody`.
-- Location header sur les `201 Created` : `URI.create("/my-resource/" + saved.getId())`.
-- Pour `update`, charger l'entité existante depuis le repository avant de la modifier — ne jamais forcer un id sur un objet non géré par JPA.
+**Règles :**
+- `@PreAuthorize` sur chaque méthode.
+- `@Valid` obligatoire sur chaque `@RequestBody`.
+- `ResponseEntity` obligatoire dès qu'un statut HTTP explicite est nécessaire (201, 404…).
+- Header `Location` sur les `201 Created` : `URI.create("/items/" + created.id())`.
 
 ---
 
-## Gestion des erreurs
+## Service
 
-Un `@RestControllerAdvice` global gère les cas transversaux :
-- `MethodArgumentNotValidException` → 400 avec détail des champs
-- `ResponseStatusException` → statut HTTP correspondant
-- Exception non gérée → 500 sans stacktrace en réponse
+Le service contient la logique applicative. Il lève les erreurs fonctionnelles et loggue les opérations.
 
-Ne pas gérer `MethodArgumentNotValidException` dans les controllers individuels.
+```java
+@Service
+public class ItemService {
+
+    private static final Logger log = LoggerFactory.getLogger(ItemService.class);
+
+    private final ItemRepository itemRepository;
+
+    public ItemService(ItemRepository itemRepository) {
+        this.itemRepository = itemRepository;
+    }
+
+    public ItemResponse findById(Long id) {
+        log.info("[FIND_BY_ID] entity=Item début id={}", id);
+        return itemRepository.findById(id)
+            .map(item -> {
+                log.info("[FIND_BY_ID] entity=Item résultat id={}", id);
+                return ItemResponse.from(item);
+            })
+            .orElseThrow(() -> {
+                log.warn("[FIND_BY_ID] entity=Item NOT_FOUND id={}", id);
+                return new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found");
+            });
+    }
+
+    public ItemResponse create(ItemRequest request) {
+        log.info("[CREATE] entity=Item début name={}", request.name());
+        Item saved = itemRepository.save(new Item(request.name(), request.description()));
+        log.info("[CREATE] entity=Item résultat id={}", saved.getId());
+        return ItemResponse.from(saved);
+    }
+}
+```
+
+**Règles :**
+- Un service par ressource métier.
+- Lever `ResponseStatusException(HttpStatus.NOT_FOUND, "...")` si la ressource n'existe pas.
+- Pour `update`, toujours charger l'entité existante depuis le repository avant de la modifier — ne jamais forcer un id sur un objet non géré par JPA.
+
+---
+
+## Repository
+
+Interface Spring Data JPA. N'ajouter une méthode que si Spring Data ne peut pas la dériver automatiquement.
+
+```java
+public interface ItemRepository extends JpaRepository<Item, Long> {
+    List<Item> findByNameContainingIgnoreCase(String name);
+}
+```
 
 ---
 
@@ -116,8 +224,8 @@ Ne pas gérer `MethodArgumentNotValidException` dans les controllers individuels
 
 ```java
 @Entity
-@Table(name = "my_resources")
-public class MyResource {
+@Table(name = "items")
+public class Item {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -130,51 +238,41 @@ public class MyResource {
     @Column
     private String description;
 
-    public MyResource() {}
+    public Item() {}
 
-    public MyResource(String name, String description) {
+    public Item(String name, String description) {
         this.name = name;
         this.description = description;
     }
 
-    // getters + setters
+    // getters + setters explicites
 }
 ```
 
-**Règles** :
+**Règles :**
 - Constructeur sans argument obligatoire pour JPA.
-- Constructeur avec paramètres pour la création depuis un DTO (évite les setters en cascade dans le controller).
-- `@NotBlank` / `@NotNull` sur les champs obligatoires (Bean Validation).
-- Pas de `@Data` Lombok : getters/setters explicites pour garder le contrôle sur l'API publique de l'entité.
-
----
-
-## Repository
-
-```java
-public interface MyResourceRepository extends JpaRepository<MyResource, Long> {
-    // Spring Data génère les requêtes standards — ajouter uniquement si besoin de queries custom
-    List<MyResource> findByNameContainingIgnoreCase(String name);
-}
-```
+- Constructeur avec paramètres pour la création depuis un DTO (évite les setters en cascade dans le service).
+- `@NotBlank` / `@NotNull` sur les champs obligatoires.
+- Pas de `@Data` Lombok : getters/setters explicites pour maîtriser l'API publique de l'entité.
+- Aucune logique métier dans l'entité.
 
 ---
 
 ## Migration Flyway
 
 ```sql
--- src/main/resources/db/migration/V2__add_my_resource.sql
-CREATE TABLE my_resources (
+-- src/main/resources/db/migration/V2__add_items.sql
+CREATE TABLE items (
     id          BIGSERIAL PRIMARY KEY,
     name        VARCHAR(255) NOT NULL,
     description TEXT
 );
 ```
 
-**Règles** :
-- Numérotation séquentielle : `V1__`, `V2__`, `V3__`...
-- Ne jamais modifier un script existant après qu'il a été appliqué.
-- Les données de seed vont dans le même fichier que la table, ou dans un script `R__` (repeatable).
+**Règles :**
+- Numérotation séquentielle : `V1__`, `V2__`, `V3__`…
+- Ne jamais modifier un script déjà appliqué.
+- Données de seed : même fichier que la table, ou script `R__` (repeatable).
 
 ---
 
@@ -191,21 +289,25 @@ public Map<String, Object> me(@AuthenticationPrincipal Jwt jwt) {
 }
 ```
 
-Les rôles sont dans `jwt.getClaim("realm_access")` → clé `"roles"` (List<String>).
+Les rôles sont dans `jwt.getClaim("realm_access")` → clé `"roles"` (`List<String>`).
 
 ---
 
 ## Tests
 
-Utiliser `@SpringBootTest` + `@AutoConfigureMockMvc`. Ne pas mocker le repository — utiliser une vraie base de données (H2 ou Testcontainers PostgreSQL selon la config du projet).
+- `@SpringBootTest` + `@AutoConfigureMockMvc` pour les tests de controller (tests d'intégration).
+- Ne pas mocker le repository — utiliser une vraie base H2 ou Testcontainers PostgreSQL.
+- Nommage : `action_résultatAttendu` (ex : `create_returnsCreatedWithLocation`, `findById_returns404WhenMissing`).
+- `@ParameterizedTest` pour couvrir les cas limites numériques.
 
 ```java
 @SpringBootTest
 @AutoConfigureMockMvc
-class MyResourceControllerTest {
+@ActiveProfiles("test")
+class ItemControllerTest {
 
     @Autowired MockMvc mockMvc;
-    @Autowired MyResourceRepository repository;
+    @Autowired ItemRepository repository;
 
     @BeforeEach
     void setUp() { repository.deleteAll(); }
@@ -213,7 +315,7 @@ class MyResourceControllerTest {
     @Test
     @WithMockUser(roles = "USER")
     void findAll_returnsEmptyList() throws Exception {
-        mockMvc.perform(get("/my-resource"))
+        mockMvc.perform(get("/items"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$").isArray());
     }
@@ -221,7 +323,7 @@ class MyResourceControllerTest {
     @Test
     @WithMockUser(roles = "ADMIN")
     void create_returnsCreatedWithLocation() throws Exception {
-        mockMvc.perform(post("/my-resource")
+        mockMvc.perform(post("/items")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""{"name": "Test", "description": "Desc"}"""))
             .andExpect(status().isCreated())
@@ -230,21 +332,28 @@ class MyResourceControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "USER")
-    void create_forbiddenForUser() throws Exception {
-        mockMvc.perform(post("/my-resource")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"name": "Test"}"""))
-            .andExpect(status().isForbidden());
-    }
-
-    @Test
     @WithMockUser(roles = "ADMIN")
     void create_rejectsMissingName() throws Exception {
-        mockMvc.perform(post("/my-resource")
+        mockMvc.perform(post("/items")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""{"description": "sans nom"}"""))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.errors.name").exists());
     }
 }
 ```
+
+---
+
+## Ce que Claude ne doit jamais faire
+
+- Appeler le repository depuis un controller (passer par le service)
+- Mettre de la logique métier dans un controller ou une entité JPA
+- Utiliser `@Autowired` sur un champ (toujours le constructeur)
+- Exposer une entité JPA directement en request ou response body
+- Écrire `System.out.println` ou `System.err`
+- Modifier un script Flyway déjà appliqué
+- Utiliser `ddl-auto: create` ou `update`
+- Importer JPA ou Spring dans un module `domain`
+- Ajouter `@SpringBootTest` sur un test unitaire
+- Utiliser `JobBuilderFactory` ou `StepBuilderFactory` (API Spring Batch v4 dépréciée)

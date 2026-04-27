@@ -2,8 +2,7 @@ package com.enterprise.api.controller;
 
 import com.enterprise.api.dto.ItemRequest;
 import com.enterprise.api.dto.ItemResponse;
-import com.enterprise.api.entity.Item;
-import com.enterprise.api.repository.ItemRepository;
+import com.enterprise.api.service.ItemService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -16,53 +15,43 @@ import java.util.List;
 @RequestMapping("/items")
 public class ItemController {
 
-    private final ItemRepository itemRepository;
+    private final ItemService itemService;
 
-    public ItemController(ItemRepository itemRepository) {
-        this.itemRepository = itemRepository;
+    public ItemController(ItemService itemService) {
+        this.itemService = itemService;
     }
 
     @GetMapping
     @PreAuthorize("hasRole('USER')")
     public List<ItemResponse> findAll() {
-        return itemRepository.findAll().stream().map(ItemResponse::from).toList();
+        return itemService.findAll();
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<ItemResponse> findById(@PathVariable Long id) {
-        return itemRepository.findById(id)
-            .map(ItemResponse::from)
-            .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
+        return ResponseEntity.ok(itemService.findById(id));
     }
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ItemResponse> create(@Valid @RequestBody ItemRequest request) {
-        Item saved = itemRepository.save(new Item(request.name(), request.description()));
-        return ResponseEntity.created(URI.create("/items/" + saved.getId()))
-            .body(ItemResponse.from(saved));
+        ItemResponse created = itemService.create(request);
+        return ResponseEntity.created(URI.create("/items/" + created.id()))
+            .body(created);
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ItemResponse> update(@PathVariable Long id,
                                                @Valid @RequestBody ItemRequest request) {
-        return itemRepository.findById(id)
-            .map(existing -> {
-                existing.setName(request.name());
-                existing.setDescription(request.description());
-                return ResponseEntity.ok(ItemResponse.from(itemRepository.save(existing)));
-            })
-            .orElse(ResponseEntity.notFound().build());
+        return ResponseEntity.ok(itemService.update(id, request));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
-        if (!itemRepository.existsById(id)) return ResponseEntity.notFound().build();
-        itemRepository.deleteById(id);
+        itemService.delete(id);
         return ResponseEntity.noContent().build();
     }
 }
