@@ -11,10 +11,12 @@ import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequest
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.logout.HeaderWriterLogoutHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.ClearSiteDataHeaderWriter;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import static org.springframework.security.web.header.writers.ClearSiteDataHeaderWriter.Directive.COOKIES;
 
@@ -47,8 +49,9 @@ public class SecurityConfig {
                 .authorizationEndpoint(endpoint -> endpoint
                     .authorizationRequestResolver(pkceResolver())
                 )
-                // Chemin server-relatif — fonctionne quel que soit le hostname/port de déploiement
-                .defaultSuccessUrl("/dashboard", false)
+                // Redirige vers le frontend (hors context-path /bff) en utilisant les headers
+                // X-Forwarded-* de nginx pour reconstruire le bon scheme/host/port.
+                .successHandler(frontendSuccessHandler())
             )
             // Retourne 401 pour les appels AJAX non authentifiés (pas de redirect HTML)
             .exceptionHandling(ex -> ex
@@ -65,6 +68,24 @@ public class SecurityConfig {
             .oidcLogout(oidc -> oidc.backChannel(backChannel -> {}));
 
         return http.build();
+    }
+
+    private SimpleUrlAuthenticationSuccessHandler frontendSuccessHandler() {
+        return new SimpleUrlAuthenticationSuccessHandler() {
+            @Override
+            protected String determineTargetUrl(jakarta.servlet.http.HttpServletRequest request,
+                                                jakarta.servlet.http.HttpServletResponse response) {
+                // Reconstruit l'URL frontend depuis les headers X-Forwarded-* de nginx.
+                // Sans ça, Spring prépend le context-path /bff et redirige vers /bff/dashboard (404).
+                return UriComponentsBuilder.newInstance()
+                        .scheme(request.getScheme())
+                        .host(request.getServerName())
+                        .port(request.getServerPort())
+                        .path("/dashboard")
+                        .build()
+                        .toUriString();
+            }
+        };
     }
 
     /**
