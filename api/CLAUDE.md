@@ -1,6 +1,6 @@
 # Conventions Spring Boot — API (Resource Server)
 
-Spring Boot 3.4.1 / Java 21, OAuth2 Resource Server, Flyway, PostgreSQL.
+Spring Boot 4.0.6 / Java 21, OAuth2 Resource Server, Flyway, PostgreSQL.
 Voir le `CLAUDE.md` racine pour la stack complète et les règles de sécurité transversales.
 
 ---
@@ -295,10 +295,11 @@ Les rôles sont dans `jwt.getClaim("realm_access")` → clé `"roles"` (`List<St
 
 ## Tests
 
-- `@SpringBootTest` + `@AutoConfigureMockMvc` pour les tests de controller (tests d'intégration).
+- `@SpringBootTest` + `@AutoConfigureMockMvc` (package `org.springframework.boot.webmvc.test.autoconfigure`) pour les tests de controller.
 - Ne pas mocker le repository — utiliser une vraie base H2 ou Testcontainers PostgreSQL.
 - Nommage : `action_résultatAttendu` (ex : `create_returnsCreatedWithLocation`, `findById_returns404WhenMissing`).
 - `@ParameterizedTest` pour couvrir les cas limites numériques.
+- **Ne jamais utiliser `@WithMockUser`** sur un Resource Server JWT : Spring Security 7 rejette le `UsernamePasswordAuthenticationToken` qu'il crée. Utiliser `.with(jwt().authorities(...))` à la place.
 
 ```java
 @SpringBootTest
@@ -313,17 +314,17 @@ class ItemControllerTest {
     void setUp() { repository.deleteAll(); }
 
     @Test
-    @WithMockUser(roles = "USER")
     void findAll_returnsEmptyList() throws Exception {
-        mockMvc.perform(get("/items"))
+        mockMvc.perform(get("/items")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_USER"))))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$").isArray());
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void create_returnsCreatedWithLocation() throws Exception {
         mockMvc.perform(post("/items")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""{"name": "Test", "description": "Desc"}"""))
             .andExpect(status().isCreated())
@@ -332,9 +333,9 @@ class ItemControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void create_rejectsMissingName() throws Exception {
         mockMvc.perform(post("/items")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""{"description": "sans nom"}"""))
             .andExpect(status().isBadRequest())
@@ -357,3 +358,4 @@ class ItemControllerTest {
 - Importer JPA ou Spring dans un module `domain`
 - Ajouter `@SpringBootTest` sur un test unitaire
 - Utiliser `JobBuilderFactory` ou `StepBuilderFactory` (API Spring Batch v4 dépréciée)
+- Utiliser `@WithMockUser` dans un test de Resource Server JWT (crée un `UsernamePasswordAuthenticationToken` rejeté par Spring Security 7 — utiliser `.with(jwt())` à la place)

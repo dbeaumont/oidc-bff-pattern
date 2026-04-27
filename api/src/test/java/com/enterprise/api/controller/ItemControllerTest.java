@@ -5,14 +5,15 @@ import com.enterprise.api.repository.ItemRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -30,29 +31,29 @@ class ItemControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "USER")
     void findAll_returnsEmptyList() throws Exception {
-        mockMvc.perform(get("/items"))
+        mockMvc.perform(get("/items")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_USER"))))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$").isArray())
             .andExpect(jsonPath("$").isEmpty());
     }
 
     @Test
-    @WithMockUser(roles = "USER")
     void findAll_returnsItems() throws Exception {
         repository.save(new Item("Test Item", "Description"));
 
-        mockMvc.perform(get("/items"))
+        mockMvc.perform(get("/items")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_USER"))))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].name").value("Test Item"))
             .andExpect(jsonPath("$[0].id").exists());
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void create_returnsCreatedWithLocation() throws Exception {
         mockMvc.perform(post("/items")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"name": "New Item", "description": "Desc"}
@@ -64,9 +65,9 @@ class ItemControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "USER")
     void create_forbiddenForUser() throws Exception {
         mockMvc.perform(post("/items")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_USER")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"name": "New Item"}
@@ -75,9 +76,9 @@ class ItemControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void create_rejectsMissingName() throws Exception {
         mockMvc.perform(post("/items")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"description": "sans nom"}
@@ -87,11 +88,11 @@ class ItemControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void update_modifiesExistingItem() throws Exception {
         Item saved = repository.save(new Item("Original", "Desc"));
 
         mockMvc.perform(put("/items/" + saved.getId())
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"name": "Updated", "description": "New Desc"}
@@ -101,9 +102,9 @@ class ItemControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void update_returns404ForUnknownId() throws Exception {
         mockMvc.perform(put("/items/999999")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"name": "Updated"}
@@ -112,20 +113,20 @@ class ItemControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void delete_removesItem() throws Exception {
         Item saved = repository.save(new Item("To Delete", null));
 
-        mockMvc.perform(delete("/items/" + saved.getId()))
+        mockMvc.perform(delete("/items/" + saved.getId())
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
             .andExpect(status().isNoContent());
 
         assertFalse(repository.existsById(saved.getId()));
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void delete_returns404ForUnknownId() throws Exception {
-        mockMvc.perform(delete("/items/999999"))
+        mockMvc.perform(delete("/items/999999")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
             .andExpect(status().isNotFound());
     }
 }

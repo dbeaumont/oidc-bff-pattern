@@ -7,8 +7,8 @@ Référence des conventions communes à toute la base de code. Chaque sous-répe
 | Couche | Technologie | Version |
 |---|---|---|
 | Frontend | Angular (standalone components) | 19 |
-| BFF | Spring Boot — OAuth2 Client + Spring Session JDBC | 3.4.1 / Java 21 |
-| API | Spring Boot — OAuth2 Resource Server + Flyway | 3.4.1 / Java 21 |
+| BFF | Spring Boot — OAuth2 Client + Spring Session JDBC | 4.0.6 / Java 21 |
+| API | Spring Boot — OAuth2 Resource Server + Flyway | 4.0.6 / Java 21 |
 | Auth | Keycloak OIDC (realm `my-realm`) | 26 |
 | Base de données | PostgreSQL | 16 |
 

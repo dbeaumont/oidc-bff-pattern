@@ -1,6 +1,6 @@
 # Conventions Spring Boot — BFF (OAuth2 Client)
 
-Spring Boot 3.4.1 / Java 21, OAuth2 Client, Spring Session JDBC. Le BFF est le seul point d'entrée HTTP entre Angular et le reste du système. Voir le `CLAUDE.md` racine pour la stack complète et les règles de sécurité transversales.
+Spring Boot 4.0.6 / Java 21, OAuth2 Client, Spring Session JDBC. Le BFF est le seul point d'entrée HTTP entre Angular et le reste du système. Voir le `CLAUDE.md` racine pour la stack complète et les règles de sécurité transversales.
 
 ## Rôle du BFF
 
