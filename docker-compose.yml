@@ -1,0 +1,131 @@
+services:
+
+  # ─── PostgreSQL (instance unique, 3 bases) ───────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Keycloak ────────────────────────────────────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.0
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
+      KC_DB_USERNAME: keycloak_user
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      KC_ADMIN: ${KC_ADMIN}
+      KC_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
+      # URL publique fixe — garantit que tous les tokens ont iss=https://localhost:8443
+      # y compris quand les backchannel BFF→Keycloak passent par http://keycloak:8080
+      # KC_HOSTNAME + KC_HOSTNAME_PORT ne suffisent pas : sur les requêtes backchannel sans
+      # headers X-Forwarded-*, Keycloak calcule l'issuer depuis l'URL de la requête (port 8080)
+      # plutôt que depuis KC_HOSTNAME_PORT=8443, causant un mismatch lors de la validation UserInfo.
+      KC_HOSTNAME: "https://localhost:8443"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      # Permet à Keycloak de lire les headers X-Forwarded-* positionnés par Nginx
+      KC_PROXY_HEADERS: xforwarded
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    networks:
+      - backend-net
+      - frontend-net   # Nécessaire pour que Nginx puisse proxifier vers Keycloak
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/9000 && printf \"GET /health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n\" >&3 && cat <&3 | grep -q UP'"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 120s
+
+  # ─── BFF (OAuth2 Client + Session JDBC) ──────────────────────────────────────
+  bff:
+    build: ./bff
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bff_db
+      SPRING_DATASOURCE_USERNAME: bff_user
+      SPRING_DATASOURCE_PASSWORD: ${BFF_DB_PASSWORD}
+      KEYCLOAK_INTERNAL_URI: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URI: https://localhost:8443
+      BFF_CLIENT_SECRET: ${BFF_CLIENT_SECRET}
+    networks:
+      - frontend-net
+      - backend-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ─── API (Resource Server) ───────────────────────────────────────────────────
+  api:
+    build: ./api
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/api_db
+      SPRING_DATASOURCE_USERNAME: api_user
+      SPRING_DATASOURCE_PASSWORD: ${API_DB_PASSWORD}
+      KEYCLOAK_INTERNAL_URI: http://keycloak:8080
+      KEYCLOAK_PUBLIC_ISSUER: https://localhost:8443/realms/my-realm
+    networks:
+      - backend-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health | grep -q UP"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ─── Frontend Angular ─────────────────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    networks:
+      - frontend-net
+
+  # ─── Nginx (TLS reverse proxy) ───────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    networks:
+      - frontend-net
+    depends_on:
+      - bff
+      - frontend
+
+networks:
+  frontend-net:
+    driver: bridge
+  backend-net:
+    driver: bridge
+
+volumes:
+  postgres_data:

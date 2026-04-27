@@ -1,0 +1,50 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: api
+
+  # ─── DataSource → api_db ────────────────────────────────────────────────────
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/api_db}
+    username: ${SPRING_DATASOURCE_USERNAME:api_user}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  # ─── OAuth2 Resource Server ──────────────────────────────────────────────────
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Validation de signature via JWKS interne (API → Keycloak sur backend-net)
+          # L'issuer est validé séparément dans le JwtDecoder custom (SecurityConfig)
+          jwk-set-uri: ${KEYCLOAK_INTERNAL_URI:http://keycloak:8080}/realms/my-realm/protocol/openid-connect/certs
+
+# URL publique de Keycloak telle qu'elle apparaît dans le claim 'iss' des tokens
+keycloak:
+  public-issuer: ${KEYCLOAK_PUBLIC_ISSUER:https://localhost:8443/realms/my-realm}
+
+# ─── Actuator ────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

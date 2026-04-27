@@ -1,0 +1,23 @@
+# Secrets
+.env
+
+# Certificats TLS (générés localement)
+nginx/certs/*.pem
+nginx/certs/*.crt
+nginx/certs/*.key
+
+# Maven
+bff/target/
+api/target/
+
+# Node / Angular
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store

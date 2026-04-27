@@ -1,0 +1,71 @@
+server:
+  port: 8081
+  # Utilise les headers X-Forwarded-* de Nginx pour construire les URLs de redirection
+  forward-headers-strategy: framework
+  servlet:
+    context-path: /bff
+    session:
+      cookie:
+        name: SESSION
+        http-only: true
+        secure: true
+        same-site: strict
+        path: /
+
+spring:
+  application:
+    name: bff
+
+  # ─── DataSource → bff_db ────────────────────────────────────────────────────
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/bff_db}
+    username: ${SPRING_DATASOURCE_USERNAME:bff_user}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 30000
+
+  # ─── Spring Session JDBC ────────────────────────────────────────────────────
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: always
+      table-name: SPRING_SESSION
+      cleanup-cron: "0 * * * * *"
+    timeout: 30m
+
+  # ─── OAuth2 Client ───────────────────────────────────────────────────────────
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: bff-client
+            client-secret: ${BFF_CLIENT_SECRET}
+            authorization-grant-type: authorization_code
+            scope: openid,profile,email,roles
+            redirect-uri: "${KEYCLOAK_PUBLIC_URI:https://localhost:8443}/bff/login/oauth2/code/keycloak"
+        provider:
+          keycloak:
+            # Endpoints internes : BFF → Keycloak direct sur backend-net (token, jwks, userinfo)
+            token-uri: ${KEYCLOAK_INTERNAL_URI:http://keycloak:8080}/realms/my-realm/protocol/openid-connect/token
+            jwk-set-uri: ${KEYCLOAK_INTERNAL_URI:http://keycloak:8080}/realms/my-realm/protocol/openid-connect/certs
+            user-info-uri: ${KEYCLOAK_INTERNAL_URI:http://keycloak:8080}/realms/my-realm/protocol/openid-connect/userinfo
+            user-name-attribute: preferred_username
+            # URL publique : browser → Keycloak via Nginx (jamais keycloak:8080 exposé)
+            authorization-uri: ${KEYCLOAK_PUBLIC_URI:https://localhost:8443}/realms/my-realm/protocol/openid-connect/auth
+
+# ─── Actuator ────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+# ─── URL interne de l'API backend ───────────────────────────────────────────
+api:
+  base-url: ${API_BASE_URL:http://api:8082}
