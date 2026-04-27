@@ -1,0 +1,34 @@
+server:
+  servlet:
+    context-path: /bff
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:bfftest;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;NON_KEYWORDS=VALUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: always
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: bff-client
+            client-secret: test-secret
+            authorization-grant-type: authorization_code
+            scope: openid,profile,email,roles
+            redirect-uri: "{baseUrl}/login/oauth2/code/keycloak"
+        provider:
+          keycloak:
+            token-uri: http://localhost/token
+            jwk-set-uri: http://localhost/jwks
+            user-info-uri: http://localhost/userinfo
+            user-name-attribute: preferred_username
+            authorization-uri: http://localhost/auth
+
+api:
+  base-url: http://localhost:8082

@@ -83,7 +83,7 @@
         {
           "type": "password",
           "value": "user1234",
-          "temporary": false
+          "temporary": true
         }
       ],
       "realmRoles": ["USER"]
@@ -99,7 +99,7 @@
         {
           "type": "password",
           "value": "admin1234",
-          "temporary": false
+          "temporary": true
         }
       ],
       "realmRoles": ["USER", "ADMIN"]

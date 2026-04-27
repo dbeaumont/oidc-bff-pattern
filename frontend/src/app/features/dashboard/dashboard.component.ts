@@ -1,45 +1,39 @@
-import { Component, OnInit, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { AuthService, UserInfo } from '../../core/services/auth.service';
-
-interface Item {
-  id: number;
-  name: string;
-  description: string;
-}
+import { ItemService, Item } from '../../core/services/item.service';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss'
 })
 export class DashboardComponent implements OnInit {
-  private readonly http = inject(HttpClient);
+  private readonly itemService = inject(ItemService);
   readonly authService = inject(AuthService);
 
-  user: UserInfo | null = null;
-  items: Item[] = [];
-  loading = true;
-  error: string | null = null;
+  readonly user = signal<UserInfo | null>(null);
+  readonly items = signal<Item[]>([]);
+  readonly loading = signal(true);
+  readonly error = signal<string | null>(null);
 
   ngOnInit(): void {
-    this.authService.getUserInfo().subscribe(user => (this.user = user));
+    this.authService.getUserInfo().subscribe(user => this.user.set(user));
     this.loadItems();
   }
 
   loadItems(): void {
-    this.loading = true;
-    this.http.get<Item[]>('/bff/api/items').subscribe({
+    this.loading.set(true);
+    this.error.set(null);
+    this.itemService.getAll().subscribe({
       next: items => {
-        this.items = items;
-        this.loading = false;
+        this.items.set(items);
+        this.loading.set(false);
       },
       error: () => {
-        this.error = 'Impossible de charger les données.';
-        this.loading = false;
+        this.error.set('Impossible de charger les données.');
+        this.loading.set(false);
       }
     });
   }

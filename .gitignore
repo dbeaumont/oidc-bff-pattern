@@ -1,5 +1,6 @@
-# Secrets
+# Secrets & sessions
 .env
+cookies.txt
 
 # Certificats TLS (générés localement)
 nginx/certs/*.pem
@@ -13,6 +14,7 @@ api/target/
 # Node / Angular
 frontend/node_modules/
 frontend/dist/
+frontend/.angular/
 
 # IDE
 .idea/

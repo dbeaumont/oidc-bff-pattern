@@ -24,7 +24,12 @@ public class UserInfoController {
             return ResponseEntity.status(401).build();
         }
 
-        List<String> roles = user.getClaimAsStringList("roles");
+        // Les rôles Keycloak sont dans realm_access.roles, pas dans un claim top-level "roles"
+        Map<String, Object> realmAccess = user.getClaim("realm_access");
+        @SuppressWarnings("unchecked")
+        List<String> roles = (realmAccess != null)
+            ? (List<String>) realmAccess.get("roles")
+            : List.of();
 
         Map<String, Object> info = Map.of(
             "sub",       user.getSubject(),

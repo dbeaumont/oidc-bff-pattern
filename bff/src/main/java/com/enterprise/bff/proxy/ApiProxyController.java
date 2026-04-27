@@ -7,7 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.client.RestClient;
 
 import java.util.List;
 import java.util.Optional;
@@ -22,10 +22,10 @@ public class ApiProxyController {
         "te", "trailers", "transfer-encoding", "upgrade"
     );
 
-    private final WebClient apiWebClient;
+    private final RestClient apiRestClient;
 
-    public ApiProxyController(WebClient apiWebClient) {
-        this.apiWebClient = apiWebClient;
+    public ApiProxyController(RestClient apiRestClient) {
+        this.apiRestClient = apiRestClient;
     }
 
     @RequestMapping("/**")
@@ -35,21 +35,22 @@ public class ApiProxyController {
     ) {
         String path = request.getRequestURI().replaceFirst("/bff/api", "");
         String query = request.getQueryString();
-
         HttpMethod method = HttpMethod.valueOf(request.getMethod());
 
-        WebClient.RequestBodySpec requestSpec = apiWebClient
+        var uriSpec = apiRestClient
             .method(method)
-            .uri(uriBuilder -> uriBuilder.replacePath(path).replaceQuery(query).build());
+            .uri(uriBuilder -> {
+                uriBuilder.replacePath(path);
+                if (query != null) uriBuilder.replaceQuery(query);
+                return uriBuilder.build();
+            });
 
+        ResponseEntity<byte[]> apiResponse;
         if (body.isPresent() && body.get().length > 0) {
-            requestSpec.bodyValue(body.get());
+            apiResponse = uriSpec.body(body.get()).retrieve().toEntity(byte[].class);
+        } else {
+            apiResponse = uriSpec.retrieve().toEntity(byte[].class);
         }
-
-        ResponseEntity<byte[]> apiResponse = requestSpec
-            .retrieve()
-            .toEntity(byte[].class)
-            .block();
 
         HttpHeaders filteredHeaders = new HttpHeaders();
         apiResponse.getHeaders().forEach((name, values) -> {

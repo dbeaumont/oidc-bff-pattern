@@ -1,24 +1,33 @@
 <div class="dashboard">
   <header class="header">
     <h1>Enterprise App</h1>
-    <div class="user-info" *ngIf="user">
-      <span>{{ user.firstName }} {{ user.lastName }}</span>
-      <span class="roles">{{ user.roles.join(', ') }}</span>
-      <button (click)="logout()" class="btn-logout">Déconnexion</button>
-    </div>
+    @if (user()) {
+      <div class="user-info">
+        <span>{{ user()!.firstName }} {{ user()!.lastName }}</span>
+        <span class="roles">{{ user()!.roles.join(', ') }}</span>
+        <button (click)="logout()" class="btn-logout">Déconnexion</button>
+      </div>
+    }
   </header>
 
   <main class="content">
     <h2>Items</h2>
 
-    <div *ngIf="loading" class="loading">Chargement...</div>
-    <div *ngIf="error" class="error">{{ error }}</div>
-
-    <ul *ngIf="!loading && !error" class="items-list">
-      <li *ngFor="let item of items" class="item-card">
-        <strong>{{ item.name }}</strong>
-        <p>{{ item.description }}</p>
-      </li>
-    </ul>
+    @if (loading()) {
+      <div class="loading">Chargement...</div>
+    }
+    @if (error()) {
+      <div class="error">{{ error() }}</div>
+    }
+    @if (!loading() && !error()) {
+      <ul class="items-list">
+        @for (item of items(); track item.id) {
+          <li class="item-card">
+            <strong>{{ item.name }}</strong>
+            <p>{{ item.description }}</p>
+          </li>
+        }
+      </ul>
+    }
   </main>
 </div>

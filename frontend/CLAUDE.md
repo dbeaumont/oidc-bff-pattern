@@ -7,7 +7,8 @@ Angular 19, composants standalone uniquement. Voir le `CLAUDE.md` racine pour la
 - **Toujours** utiliser des composants standalone (`standalone: true`). Aucun `NgModule`.
 - Injection via `inject()` dans le corps de la classe, jamais via constructeur.
 - Les services sont `providedIn: 'root'` sauf besoin explicite de scope.
-- Pas de `async/await` dans les composants : utiliser les `Observable` RxJS et le pipe `async` dans les templates.
+- Pas de `async/await` dans les composants : utiliser les `Observable` RxJS avec `.subscribe()` dans `ngOnInit`, stocker le résultat dans des `signal()`, et lire les signals dans le template via `signal()`.
+- Le pipe `async` est déconseillé : il ré-exécute l'Observable à chaque appel (risque de requêtes multiples). Préférer les signals.
 - Aucun token OAuth2 ni donnée d'authentification ne transite côté client. L'identité vient uniquement de `/bff/user-info`.
 
 ---
@@ -16,27 +17,24 @@ Angular 19, composants standalone uniquement. Voir le `CLAUDE.md` racine pour la
 
 ```typescript
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
-
-interface MyData { id: number; label: string; }
+import { MyDataService, MyData } from '../../core/services/my-data.service';
 
 @Component({
   selector: 'app-my-feature',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],   // CommonModule inutile : @if et @for font partie du compilateur Angular 17+
   templateUrl: './my-feature.component.html',
   styleUrl: './my-feature.component.scss'
 })
 export class MyFeatureComponent implements OnInit {
-  private readonly http = inject(HttpClient);
+  private readonly myDataService = inject(MyDataService);
 
   readonly items = signal<MyData[]>([]);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
 
   ngOnInit(): void {
-    this.http.get<MyData[]>('/bff/api/my-resource').subscribe({
+    this.myDataService.getAll().subscribe({
       next: data => { this.items.set(data); this.loading.set(false); },
       error: () => { this.error.set('Impossible de charger les données.'); this.loading.set(false); }
     });
@@ -137,18 +135,20 @@ export class MyService {
 
 ## Vérification des rôles dans le template
 
+Stocker l'utilisateur dans un signal via `subscribe()` dans `ngOnInit` — ne pas appeler `getUserInfo()` directement dans le template (déclencherait une nouvelle requête HTTP à chaque détection de changement).
+
 ```typescript
 // Dans le composant
-readonly authService = inject(AuthService);
-// authService.getUserInfo() retourne Observable<UserInfo | null>
-// UserInfo.roles contient les rôles Keycloak (ex: ['USER', 'ADMIN'])
+readonly user = signal<UserInfo | null>(null);
+
+ngOnInit(): void {
+  inject(AuthService).getUserInfo().subscribe(u => this.user.set(u));
+}
 ```
 
 ```html
-@if (authService.getUserInfo() | async; as user) {
-  @if (user.roles.includes('ADMIN')) {
-    <button (click)="delete(item.id)">Supprimer</button>
-  }
+@if (user()?.roles.includes('ADMIN')) {
+  <button (click)="delete(item.id)">Supprimer</button>
 }
 ```
 

@@ -47,7 +47,8 @@ public class SecurityConfig {
                 .authorizationEndpoint(endpoint -> endpoint
                     .authorizationRequestResolver(pkceResolver())
                 )
-                .defaultSuccessUrl("https://localhost:8443/dashboard", false)
+                // Chemin server-relatif — fonctionne quel que soit le hostname/port de déploiement
+                .defaultSuccessUrl("/dashboard", false)
             )
             // Retourne 401 pour les appels AJAX non authentifiés (pas de redirect HTML)
             .exceptionHandling(ex -> ex
@@ -56,7 +57,7 @@ public class SecurityConfig {
             .logout(logout -> logout
                 .logoutUrl("/logout")
                 .addLogoutHandler(new HeaderWriterLogoutHandler(new ClearSiteDataHeaderWriter(COOKIES)))
-                .logoutSuccessUrl("https://localhost:8443")
+                .logoutSuccessUrl("/")
                 .invalidateHttpSession(true)
                 .deleteCookies("SESSION")
             )
@@ -74,7 +75,6 @@ public class SecurityConfig {
             new DefaultOAuth2AuthorizationRequestResolver(
                 clientRegistrationRepository, "/oauth2/authorization"
             );
-        // OAuth2AuthorizationRequestCustomizers.withPkce() retourne le Consumer<Builder> attendu
         resolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
         return resolver;
     }
