@@ -8,8 +8,8 @@ Application d'entreprise full-stack sécurisée avec authentification OIDC.
 | Couche | Technologie |
 |---|---|
 | Frontend | Angular 19 (standalone components) |
-| BFF | Spring Boot 3.4 — OAuth2 Client + Spring Session JDBC |
-| API | Spring Boot 3.4 — OAuth2 Resource Server + Flyway |
+| BFF | Spring Boot 4.0 — OAuth2 Client + Spring Session JDBC |
+| API | Spring Boot 4.0 — OAuth2 Resource Server + Flyway |
 | Identité | Keycloak 26 (OIDC) |
 | Base de données | PostgreSQL 16 (3 bases sur 1 instance) |
 | Reverse proxy | Nginx (TLS, headers de sécurité) |
