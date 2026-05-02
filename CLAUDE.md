@@ -1,6 +1,8 @@
-# Instructions de génération de code
+# CLAUDE.md
 
-Référence des conventions communes à toute la base de code. Chaque sous-répertoire contient un `CLAUDE.md` avec les conventions spécifiques à sa couche.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+Chaque sous-répertoire (`bff/`, `api/`, `frontend/`) contient un `CLAUDE.md` avec les conventions spécifiques à sa couche.
 
 ## Stack
 
@@ -28,12 +30,46 @@ cd frontend && npm start        # http://localhost:4200
 cd frontend && npm test
 cd frontend && npm run build
 
-# API / BFF
-cd api && ./mvnw spring-boot:run
+# API / BFF (tous les tests)
 cd api && ./mvnw test
-cd bff && ./mvnw spring-boot:run
 cd bff && ./mvnw test
+
+# API / BFF (une seule classe ou méthode)
+cd api && ./mvnw test -Dtest=ItemControllerTest
+cd api && ./mvnw test -Dtest=ItemControllerTest#create_returnsCreatedWithLocation
+
+# Démarrage local (hors Docker)
+cd api && ./mvnw spring-boot:run
+cd bff && ./mvnw spring-boot:run
 ```
+
+### Prérequis : fichier `.env`
+
+Le BFF lit `BFF_CLIENT_SECRET` depuis un fichier `.env` à la racine (chargé par Docker Compose). Créer ce fichier avant `make up` :
+
+```bash
+echo "BFF_CLIENT_SECRET=your-secret" > .env
+```
+
+---
+
+## Architecture réseau
+
+```
+Browser
+  └── https://localhost:8443 (Nginx)
+        ├── /realms/    → keycloak:8080  (flow OIDC browser→KC)
+        ├── /bff/       → bff:8081       (session, proxy, user-info)
+        └── /           → frontend:80    (SPA Angular)
+
+bff:8081 → api:8082          (proxy interne, Bearer token injecté)
+bff:8081 → keycloak:8080     (backchannel : token, JWKS, userinfo)
+api:8082 → keycloak:8080     (backchannel : JWKS pour validation JWT)
+api:8082 → postgres:5432     (api_db)
+bff:8081 → postgres:5432     (bff_db — Spring Session JDBC)
+```
+
+L'API (`api:8082`) est sur le réseau `backend-net` uniquement — jamais accessible depuis le browser ni depuis Angular.
 
 ---
 
@@ -52,23 +88,25 @@ cd bff && ./mvnw test
 │       ├── shared/            # composants et pipes réutilisables
 │       ├── app.routes.ts
 │       └── app.config.ts
-├── api/
+├── api/                       # package racine : com.enterprise.api
 │   └── src/main/
 │       ├── java/.../
 │       │   ├── controller/
 │       │   ├── dto/
 │       │   ├── entity/
 │       │   ├── repository/
+│       │   ├── service/
 │       │   └── config/
 │       └── resources/db/migration/
-├── bff/
+├── bff/                       # package racine : com.enterprise.bff
 │   └── src/main/
 │       ├── java/.../
-│       │   ├── controller/
-│       │   └── config/
+│       │   ├── web/           # UserInfoController
+│       │   ├── proxy/         # ApiProxyController (wildcard vers l'API)
+│       │   └── config/        # SecurityConfig, WebClientConfig
 │       └── resources/
 ├── keycloak/realm-export.json
-├── nginx/
+├── nginx/nginx.conf
 ├── docker-compose.yml
 └── Makefile
 ```
@@ -96,8 +134,9 @@ cd bff && ./mvnw test
 2. Créer l'entité `@Entity` avec contraintes Bean Validation + constructeur paramétré
 3. Créer les DTOs : record `{Resource}Request` et record `{Resource}Response` (avec `from()`)
 4. Créer `interface {Resource}Repository extends JpaRepository<{Resource}, Long>`
-5. Créer `{Resource}Controller` avec `@PreAuthorize` sur chaque endpoint
-6. Vérifier que `ddl-auto: validate` passe sans erreur au démarrage
+5. Créer `{Resource}Service` avec logs et `ResponseStatusException` pour les 404
+6. Créer `{Resource}Controller` avec `@PreAuthorize` sur chaque endpoint
+7. Vérifier que `ddl-auto: validate` passe sans erreur au démarrage
 
 ### Nouvelle page Angular
 
@@ -130,3 +169,4 @@ cd bff && ./mvnw test
 - Exposer une entité JPA directement en request/response body dans un controller
 - Forcer un id sur une entité non gérée par JPA dans un `update`
 - Signals Angular sans `readonly` sur la référence
+- Créer un controller BFF dédié par endpoint API — le proxy wildcard `ApiProxyController` couvre tout `/bff/api/**`
